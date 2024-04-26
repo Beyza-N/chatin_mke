@@ -1,0 +1,202 @@
+ldap_authorization.cs
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.DirectoryServices;
+
+namespace TAI_CHAT3
+{
+    class LDAPAuthorization
+    {
+        private string ldapPath;
+        public string LDAPPath { get; private set; }
+        public int LDAPPort { get; private set; }
+        public LDAPAuthorization(string ldapServerAddress, int ldapPort)
+        {
+            this.ldapPath = $"ldap://{ldapServerAddress}:{ldapPort}";
+            LDAPAuthorization ldapAuth = new LDAPAuthorization("ldaps://taiintldap.dmnint.intra ", 636);
+         
+
+        }
+
+        public bool Authenticate(string username, string password)
+        {
+            try
+            {
+                using (DirectoryEntry entry = new DirectoryEntry(ldapPath, username, password))
+                {
+                    //ldap sunucu bağlantısı
+                    object obj = entry.NativeObject;
+                    return true;
+                }
+            }
+            catch (DirectoryServicesCOMException)
+            {
+                return false;
+            }
+        }
+        public bool IsUserInGroup(string username, string groupName)
+        {
+            try
+            {
+                using (DirectoryEntry entry = new DirectoryEntry(ldapPath))
+                {
+                    using (DirectorySearcher searcher = new DirectorySearcher(entry))
+                    {
+                        searcher.Filter = $"(&(objectClass =user)(sAMAccountName={username}))";
+                        searcher.PropertiesToLoad.Add("memberOf");
+                        SearchResult result = searcher.FindOne();
+
+                        if (result != null)
+                        {
+                            foreach (string group in result.Properties["memberOf"])
+                            {
+                                if (group.Contains(groupName))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error:" + ex.Message);
+            }
+            return false;
+        }
+    }
+}
+program.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace TAI_CHAT3
+{
+    static class Program
+    {
+        /// <summary>
+        /// The main entry point for the application.
+        /// </summary>
+        [STAThread]
+        static void Main()
+        {
+           
+            
+            LDAPAuthorization ldapAuth = new LDAPAuthorization("ldaps://taiintldap.dmnint.intra", 636);
+          
+            Server server = new Server("ldaps://taiintldap.dmnint.intra:636/ ");
+            server.Start();
+
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new Form1());
+
+
+        }
+    }
+}
+server.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Net;
+using System.Net.Sockets;
+using System.DirectoryServices;
+using System.IO;
+using System.DirectoryServices.Protocols;
+
+
+namespace TAI_CHAT3
+{
+    class Server
+    {
+        private LDAPAuthorization ldapAuth;
+
+        public Server(string ldapPath)
+        {
+            ldapAuth = new LDAPAuthorization("ldaps://taiintldap.dmnint.intra", 636);
+        }
+        //burda tcp soketi oluşturdum, belirtilen port üzerinde istemcilerin bağlantıları kabul ediliyor, kabul edilirse istemciden alınan veri alınır ve ekrana yazdırılır.
+        static void Main(string[] args)
+        {
+            Server server = new Server("ldaps://taiintldap.dmnint.intra:636/ ");
+            server.Start();
+        }
+        public void Start()
+        {
+            TcpListener serverSocket = null;
+            try
+            {
+                serverSocket = new TcpListener(IPAddress.Any, 8888);
+                serverSocket.Start();
+                Console.WriteLine("SERVER is starting");
+
+                while (true)
+                {
+                    Console.WriteLine("Bağlantı bekleniyor");
+                    TcpClient client = serverSocket.AcceptTcpClient();
+                    Console.WriteLine("istemci bağlandı");
+
+                    NetworkStream networkStream = client.GetStream();
+                    StreamReader reader = new StreamReader(networkStream);
+                    StreamWriter writer = new StreamWriter(networkStream);
+
+                    //istemciden kullanıcıadı şifre alma
+                    writer.WriteLine("enter user name:");
+                    writer.Flush();
+                    string username = reader.ReadLine();
+                    writer.WriteLine("enter password:");
+                    writer.Flush();
+                    string password = reader.ReadLine();
+                    // ldap kimlik doğurlaması yapma
+
+                    bool isAuthenticated = ldapAuth.Authenticate(username, password);
+
+                    if (isAuthenticated)
+                    {
+                        writer.WriteLine("ldap kimlik doğurlama başarılı");
+                    }
+                    else
+                    {
+                        writer.WriteLine("ldap kimlik doğrulama başarısız");
+
+                    }
+                    writer.Flush();
+                    client.Close();
+                    /*
+                    byte[] buffer = new byte[1024];
+                    int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                    string dataReceived = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+                    Console.WriteLine($" istemci mesajı:{dataReceived}");
+                    // istemciye yanıt gönderme
+
+                    string responseMessage = "hello";
+                    byte[] responseData = Encoding.ASCII.GetBytes(responseMessage);
+                    stream.Write(responseData, 0, responseData.Length);
+
+                    client.Close();*/
+                }
+
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("error: " + ex.Message);
+            }
+            finally
+            {
+                serverSocket.Stop();
+            }
+        }
+
+    }
+}
