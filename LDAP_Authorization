@@ -1,0 +1,72 @@
+ldap new -- server projesinin içine
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.DirectoryServices;
+
+namespace SERVER
+{
+    class LDAPAuthorization
+    {
+        private string ldapPath;
+        public string LDAPPath { get; private set; }
+        public int LDAPPort { get; private set; }
+        public LDAPAuthorization(string ldapServerAddress, int ldapPort)
+        {
+            this.ldapPath = $"ldap://{ldapServerAddress}:{ldapPort}";
+            LDAPAuthorization ldapAuth = new LDAPAuthorization("ldaps://taiintldap.dmnint.intra ", 636);
+
+
+        }
+
+        public bool Authenticate(string username, string password)
+        {
+            try
+            {
+                using (DirectoryEntry entry = new DirectoryEntry(ldapPath, username, password))
+                {
+                    //ldap sunucu bağlantısı
+                    object obj = entry.NativeObject;
+                    return true;
+                }
+            }
+            catch (DirectoryServicesCOMException)
+            {
+                return false;
+            }
+        }
+        public bool IsUserInGroup(string username, string groupName)
+        {
+            try
+            {
+                using (DirectoryEntry entry = new DirectoryEntry(ldapPath))
+                {
+                    using (DirectorySearcher searcher = new DirectorySearcher(entry))
+                    {
+                        searcher.Filter = $"(&(objectClass =user)(sAMAccountName={username}))";
+                        searcher.PropertiesToLoad.Add("memberOf");
+                        SearchResult result = searcher.FindOne();
+
+                        if (result != null)
+                        {
+                            foreach (string group in result.Properties["memberOf"])
+                            {
+                                if (group.Contains(groupName))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error:" + ex.Message);
+            }
+            return false;
+        }
+    }
+}
